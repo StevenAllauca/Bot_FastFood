@@ -37,6 +37,54 @@ function sendResponse(res, twiml, message) {
 function resetToMainMenu(user) {
   user.status = "esperando_opcion";
   user.currentOrder = [];
+  user.statusBeforeInactivity = null;
+}
+
+function clearUserTimer(user) {
+  if (user.timer) {
+    clearTimeout(user.timer);
+    user.timer = null;
+  }
+}
+
+/**
+ * ===============================
+ * GENERADORES
+ * ===============================
+ */
+
+function generateSummary(user) {
+  let total = 0;
+  let summary = "🧾 *Resumen de tu pedido:*\n\n";
+
+  user.currentOrder.forEach((product, index) => {
+    const subtotal = product.price * product.quantity;
+    total += subtotal;
+
+    summary += `${index + 1}. ${product.name} x${product.quantity} - $${subtotal.toFixed(2)}\n`;
+  });
+
+  summary += `\n💵 *Total:* $${total.toFixed(2)}\n\n`;
+  summary +=
+    "1️⃣ Confirmar\n" +
+    "2️⃣ Eliminar producto\n" +
+    "3️⃣ Método de pago\n" +
+    "4️⃣ Agregar más productos\n" +
+    "5️⃣ Cancelar pedido";
+
+  return summary;
+}
+
+function generateDeleteMenu(user) {
+  let message = "🗑️ *Selecciona el producto que deseas eliminar:*\n\n";
+
+  user.currentOrder.forEach((product, index) => {
+    message += `${index + 1}. ${product.name} x${product.quantity}\n`;
+  });
+
+  message += "\nEscribe el número del producto.";
+
+  return message;
 }
 
 /**
@@ -44,10 +92,10 @@ function resetToMainMenu(user) {
  * INACTIVIDAD
  * ===============================
  */
+
 const startInactivityTimer = (from) => {
   const user = users[from];
-
-  if (user.timer) clearTimeout(user.timer);
+  clearUserTimer(user);
 
   user.timer = setTimeout(async () => {
     if (!user.inactivitySent) {
@@ -59,6 +107,8 @@ const startInactivityTimer = (from) => {
         });
 
         user.inactivitySent = true;
+        user.statusBeforeInactivity = user.status;
+        user.status = "esperando_respuesta_inactividad";
       } catch (error) {
         console.error("Error enviando mensaje de inactividad:", error.message);
       }
@@ -71,6 +121,7 @@ const startInactivityTimer = (from) => {
  * CONTROLADOR PRINCIPAL
  * ===============================
  */
+
 exports.handleMessage = async (req, res) => {
   const from = req.body.From;
   const incomingMsg = (req.body.Body || "").trim();
@@ -83,6 +134,7 @@ exports.handleMessage = async (req, res) => {
       currentOrder: [],
       timer: null,
       inactivitySent: false,
+      statusBeforeInactivity: null,
     };
   }
 
@@ -95,24 +147,26 @@ exports.handleMessage = async (req, res) => {
    * VOLVER UNIVERSAL
    */
   if (lowerMsg === "volver") {
+    clearUserTimer(user);
     resetToMainMenu(user);
     return sendResponse(res, twiml, messages.welcome);
   }
 
   /**
-   * MANEJO DE RESPUESTA A INACTIVIDAD
+   * RESPUESTA A INACTIVIDAD
    */
-  if (user.inactivitySent === false && (incomingMsg === "1" || incomingMsg === "2")) {
-    // Esto solo aplica si acaba de responder al mensaje de inactividad
-    // pero como no guardamos estado especial,
-    // simplemente interpretamos las opciones:
+  if (user.status === "esperando_respuesta_inactividad") {
+    if (incomingMsg === "1") {
+      user.status = user.statusBeforeInactivity || "esperando_opcion";
+      return sendResponse(res, twiml, "✅ Continuamos con tu pedido 😊");
+    }
 
     if (incomingMsg === "2") {
       resetToMainMenu(user);
       return sendResponse(res, twiml, messages.welcome);
     }
 
-    // Si presiona 1 → simplemente continúa flujo normal
+    return sendResponse(res, twiml, "1️⃣ Continuar\n2️⃣ Volver al menú");
   }
 
   /**
@@ -193,12 +247,13 @@ exports.handleMessage = async (req, res) => {
   if (user.status === "confirmando") {
     switch (incomingMsg) {
       case "1":
+        clearUserTimer(user);
         user.currentOrder = [];
-        user.status = "inicio";
+        user.status = "esperando_opcion";
         return sendResponse(
           res,
           twiml,
-          `🎉 ¡Pedido confirmado!\n\nTu orden estará lista en 20 minutos 🚚\n\nEscribe "volver" para regresar al menú principal.`
+          `🎉 ¡Pedido confirmado!\n\nTu orden estará lista en 20 minutos 🚚\n\n${messages.welcome}`
         );
 
       case "2":
@@ -213,6 +268,7 @@ exports.handleMessage = async (req, res) => {
         return sendResponse(res, twiml, messages.menu);
 
       case "5":
+        clearUserTimer(user);
         resetToMainMenu(user);
         return sendResponse(res, twiml, `❌ Tu pedido fue cancelado.\n\n${messages.welcome}`);
 
@@ -226,7 +282,7 @@ exports.handleMessage = async (req, res) => {
   }
 
   /**
-   * ELIMINAR PRODUCTO (VALIDACIÓN SEGURA)
+   * ELIMINAR PRODUCTO
    */
   if (user.status === "eliminando_producto") {
     const index = Number(incomingMsg) - 1;
@@ -252,37 +308,3 @@ exports.handleMessage = async (req, res) => {
 
   return sendResponse(res, twiml, messages.default);
 };
-
-/**
- * RESUMEN
- */
-function generateSummary(user) {
-  const orderSummary = user.currentOrder
-    .map(
-      (item, index) =>
-        `${index + 1}️⃣ ${item.quantity} x ${item.name} - $${(
-          item.price * item.quantity
-        ).toFixed(2)}`
-    )
-    .join("\n");
-
-  const total = user.currentOrder.reduce(
-    (acc, item) => acc + item.price * item.quantity,
-    0
-  );
-
-  return `🛒 Resumen de tu pedido:\n\n${orderSummary}\n\nTotal: $${total.toFixed(
-    2
-  )}\n\n1️⃣ Confirmar pedido\n2️⃣ Eliminar producto\n3️⃣ Ver método de pago\n4️⃣ Agregar más productos\n5️⃣ Cancelar pedido\n\nEscribe "volver" para regresar al menú principal.`;
-}
-
-/**
- * MENÚ ELIMINAR
- */
-function generateDeleteMenu(user) {
-  const list = user.currentOrder
-    .map((item, index) => `${index + 1}️⃣ ${item.quantity} x ${item.name}`)
-    .join("\n");
-
-  return `🗑 ¿Qué producto deseas eliminar?\n\n${list}\n\nEscribe el número del producto a eliminar.`;
-}

@@ -7,7 +7,9 @@ Selecciona una opción:
 3️⃣ 🎁 Ver promociones
 4️⃣ 📍 Ubicación
 5️⃣ 🕒 Horarios
-6️⃣ 👩‍💼 Hablar con un asesor`,
+6️⃣ 👩‍💼 Hablar con un asesor
+Si quieres volver a este menu solo escribe "volver" 
+`,
 
   menu: `📋 MENÚ DISPONIBLE:
 
