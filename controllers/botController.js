@@ -278,7 +278,7 @@ exports.handleMessage = async (req, res) => {
       case "5":
         clearUserTimer(user);
         resetToMainMenu(user);
-        return sendResponse(res, twiml, `❌ Tu pedido fue cancelado.\n\n`);
+        return sendResponse(res, twiml, `❌ Tu pedido fue cancelado.\n\n${messages.welcome}`);
 
       default:
         return sendResponse(
